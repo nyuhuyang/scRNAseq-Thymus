@@ -17,96 +17,94 @@ source("./R/Seurat_functions.R")
 
 # setup Seurat objects since both count matrices have already filtered
 # cells, we do no additional filtering here
-
-samples <- c("IP8672","TR624_M2102")
-projects <- c("EC-RW-4262","EC-RW-4262")
-conditions <- c("primary", "PDX")
-DLBCL_raw <- list()
-for(i in 1:length(samples)){
-  DLBCL_raw[[i]] <- Read10X(data.dir = paste0("./data/",
-                              samples[i],"/outs/filtered_gene_bc_matrices/hg19/"))
-  colnames(DLBCL_raw[[i]]) <- paste0(conditions[i],
-                                          "_",colnames(DLBCL_raw[[i]]))
+sample1 <- c("SO1A","SO1B","SO2A","SO2B")
+sample2 <- c("S11","S12","S21","S22","S31","S32","S1A","S1B","S2A","S2B","S3A","S3B")
+sample3 <- c("SYM1A","SYM1B","SYM2A","SYM2B")
+group <- c("aged_male1","aged_male2","young_female1","young_female2",
+           "young_male")
+condition <- c("aged_male","young_female","young_male")
+groups <- c(rep(group[1:2],each =4),rep(group[3:4],each =6),rep(group[5],each =4))
+conditions <- c(rep(condition[1],each =8),rep(condition[2],each =12),rep(condition[3],each =4))
+sample <- c(rep(sample1,time =2),sample2,sample3)
+length(groups);length(sample);length(conditions)
+paths <- c(); samples <- c()
+for(i in c(1:24)){
+        paths[i] <- paste0("./data/", groups[i],"/out_",sample[i],
+                           "/out_gene_exon_tagged.dge_",sample[i],".txt.gz")
+        samples[i] <- paste0(groups[i],"_",sample[i])
 }
-DLBCL_Seurat <- lapply(DLBCL_raw, CreateSeuratObject,
-                            min.cells = 3,
-                            min.genes = 200,
-                            project = projects)
-for(i in 1:length(samples)) DLBCL_Seurat[[i]]@meta.data$conditions <- conditions[i]
-DLBCL_Seurat <- lapply(DLBCL_Seurat, FilterCells, 
-                            subset.names = "nGene", 
-                            low.thresholds = 500, 
-                            high.thresholds = Inf)
-DLBCL_Seurat <- lapply(DLBCL_Seurat, NormalizeData)
-DLBCL_Seurat <- lapply(DLBCL_Seurat, ScaleData)
-DLBCL_Seurat <- lapply(DLBCL_Seurat, FindVariableGenes, do.plot = FALSE)
+
+tables <- lapply(paths, read.table, header=T,row.names = "GENE",stringsAsFactors=F)
+
+for(i in 1:length(samples)) colnames(tables[[i]]) <- paste0(groups[i],
+                                                            ".",colnames(tables[[i]])) #. is easier for sub
+Thymus <- lapply(tables, CreateSeuratObject,
+                 min.cells = 3,
+                 min.genes = 200,
+                 project = "DropSeq")
+for(i in 1:length(samples)) Thymus[[i]]@meta.data$conditions <- conditions[i]
+Thymus <- lapply(Thymus, FilterCells, 
+                 subset.names = "nGene", 
+                 low.thresholds = 500, 
+                 high.thresholds = Inf)
+Thymus <- lapply(Thymus, NormalizeData)
+Thymus <- lapply(Thymus, ScaleData)
+Thymus <- lapply(Thymus, FindVariableGenes, do.plot = FALSE)
 
 # we will take the union of the top 1k variable genes in each dataset for
 # alignment note that we use 1k genes in the manuscript examples, you can
 # try this here with negligible changes to the overall results
-g <- lapply(DLBCL_Seurat, function(x) head(rownames(x@hvg.info), 1000))
+g <- lapply(Thymus, function(x) head(rownames(x@hvg.info), 1000))
 genes.use <- unique(c(g[[1]],g[[2]]))
-for(i in 1:length(conditions)){
-  genes.use <- intersect(genes.use, rownames(DLBCL_Seurat[[i]]@scale.data))
+for(i in 1:length(samples)){
+        genes.use <- intersect(genes.use, rownames(Thymus[[i]]@scale.data))
 }
 length(genes.use) # 1/10 of total sample size 16764
 
 #======1.2 Perform a canonical correlation analysis (CCA) =========================
-# run a canonical correlation analysis to identify common sources
+# run a canonical correlation analysis to identify common sampleurces
 # of variation between the two datasets.
-DLBCL <- RunCCA(DLBCL_Seurat[[1]],DLBCL_Seurat[[2]],
-                          genes.use = genes.use,
-                          num.cc = 30)
-save(DLBCL, file = "./data/DLBCL_alignment.Rda")
+Thymus <- RunMultiCCA(object.list = Thymus, 
+                      genes.use = genes.use,
+                      niter = 25, num.ccs = 30,
+                      standardize =TRUE)
+#save(Thymus, file = "./Thymus_alignment.Rda")
 
 # CCA plot CC1 versus CC2 and look at a violin plot
-p1 <- DimPlot(object = DLBCL, reduction.use = "cca", group.by = "conditions", 
-              pt.size = 0.5, do.return = TRUE)
-p2 <- VlnPlot(object = DLBCL, features.plot = "CC1", group.by = "conditions", 
+p1 <- DimPlot(object = Thymus, reduction.use = "cca", 
+              group.by = "conditions", pt.size =1, 
               do.return = TRUE)
+p2 <- VlnPlot(object = Thymus, features.plot = "CC1", 
+              group.by = "conditions", do.return = TRUE)
+png('./output/Dim_violin_plots.png')
 plot_grid(p1, p2)
-
-PrintDim(object = DLBCL, reduction.type = "cca", dims.print = 1:2, genes.print = 10)
-
-p3 <- MetageneBicorPlot(DLBCL, grouping.var = "conditions", dims.eval = 1:30, 
+dev.off()
+png('./output/MetageneBicorPlot.png')
+p3 <- MetageneBicorPlot(Thymus, grouping.var = "conditions", dims.eval = 1:30, 
                         display.progress = FALSE)
-p3 + geom_smooth(method = 'loess')
-DimHeatmap(object = DLBCL, reduction.type = "cca", cells.use = 500, dim.use = 1:9, 
-           do.balanced = TRUE)
-
-DimHeatmap(object = DLBCL, reduction.type = "cca", cells.use = 500, dim.use = 10:18, 
-           do.balanced = TRUE)
-
-PrintDim(object = DLBCL, reduction.type = "cca", dims.print = 1:2, 
-         genes.print = 10)
-
-
-#======1.3 QC (skip)==================================
-
-
+dev.off()
 #======1.4 align seurat objects =========================
 #Now we align the CCA subspaces, which returns a new dimensional reduction called cca.aligned
 
-DLBCL <- AlignSubspace(object = DLBCL, reduction.type = "cca", grouping.var = "conditions", 
-                            dims.align = 1:20)
+Thymus <- AlignSubspace(object = Thymus, reduction.type = "cca", grouping.var = "conditions", 
+                        dims.align = 1:20)
 #Now we can run a single integrated analysis on all cells!
-DLBCL <- RunTSNE(object = DLBCL, reduction.use = "cca.aligned", dims.use = 1:20, 
-                      resolution = 0.8, do.fast = TRUE)
-DLBCL <- FindClusters(object = DLBCL, reduction.type = "cca.aligned", dims.use = 1:20, 
-                           force.recalc = T, save.SNN = TRUE)
-p1 <- TSNEPlot(DLBCL, do.return = T, pt.size = 1, group.by = "conditions")
-p2 <- TSNEPlot(DLBCL, do.label = F, do.return = T, pt.size = 1)
-#png('./output/TSNESplot_alignment.png')
+Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:20, 
+                  dim.embed = 2, do.fast = TRUE)
+Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:20, 
+                       save.SNN = TRUE)
+p1 <- TSNEPlot(Thymus, do.return = T, pt.size = 1, group.by = "conditions")
+p2 <- TSNEPlot(Thymus, do.label = F, do.return = T, pt.size = 1)
+png('./output/TSNES_plots.png')
 plot_grid(p1, p2)
-#dev.off()
-
+dev.off()
 #Now, we annotate the clusters as before based on canonical markers.
-#png('./output/TSNEPlot.png')
-TSNEPlot(object = DLBCL,do.label = TRUE, group.by = "ident", 
-         do.return = TRUE, no.legend = TRUE,
-         pt.size = 1,label.size = 8 )+
-  ggtitle("TSNE plot of all clusters")+
-  theme(text = element_text(size=20),     #larger text including legend title							
-        plot.title = element_text(hjust = 0.5)) #title in middle
-#dev.off()
-save(DLBCL, file = "./data/DLBCL_alignment.Rda")
+png('./output/TheClusters.png')
+TSNEPlot(object = Thymus,do.label = F, group.by = "conditions", 
+               do.return = TRUE, no.legend = TRUE,
+               pt.size = 1,label.size = 8 )+
+        ggtitle("Aligned aged_male vs young_male")+
+        theme(text = element_text(size=20),     #larger text including legend title							
+              plot.title = element_text(hjust = 0.5)) #title in middle
+dev.off()
+save(Thymus, file = "./Thymus_alignment.Rda")

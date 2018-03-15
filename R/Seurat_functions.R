@@ -268,6 +268,12 @@ LabelUL <- function(plot, genes, exp.mat, adj.u.t = 0.1, adj.l.t = 0.15, adj.u.s
                           adj.y.s = adj.u.s, adj.x.s = -adj.l.s, ...))
 }
 
+# Merge table
+MyMerge <- function(x, y){
+        df <- merge(x, y, by="row.names", all=TRUE)
+        rownames(df)=df$Row.names; df=df[,-1];df[is.na(df)]=0
+        return(df)
+}
 
 # MouseGenes
 # turn list of gene character to uniform mouse gene list format
