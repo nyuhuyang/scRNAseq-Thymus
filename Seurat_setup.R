@@ -34,41 +34,43 @@ for(i in c(1:24)){
         samples[i] <- paste0(groups[i],"_",sample[i])
 }
 
-tables <- lapply(paths, read.table, header=T,row.names = "GENE",stringsAsFactors=F)
+Thymus_raw <- lapply(paths, read.table, header=T,row.names = "GENE",stringsAsFactors=F)
 
-for(i in 1:length(samples)) colnames(tables[[i]]) <- paste0(groups[i],
-                                                            ".",colnames(tables[[i]])) #. is easier for sub
-Thymus <- lapply(tables, CreateSeuratObject,
+for(i in 1:length(samples)) colnames(Thymus_raw[[i]]) <- paste0(conditions[i],
+                                                            ".",colnames(Thymus_raw[[i]])) #. is easier for sub
+Thymus_list <- lapply(Thymus_raw, CreateSeuratObject,
                  min.cells = 3,
                  min.genes = 200,
                  project = "DropSeq")
-for(i in 1:length(samples)) Thymus[[i]]@meta.data$conditions <- conditions[i]
-Thymus <- lapply(Thymus, FilterCells, 
+Thymus_list <- lapply(Thymus_list, FilterCells, 
                  subset.names = "nGene", 
                  low.thresholds = 500, 
                  high.thresholds = Inf)
-Thymus <- lapply(Thymus, NormalizeData)
-Thymus <- lapply(Thymus, ScaleData)
-Thymus <- lapply(Thymus, FindVariableGenes, do.plot = FALSE)
+Thymus_list <- lapply(Thymus_list, NormalizeData)
+Thymus_list <- lapply(Thymus_list, FindVariableGenes, do.plot = FALSE)
+Thymus_list <- lapply(Thymus_list, ScaleData)
+for(i in 1:length(samples)) Thymus_list[[i]]@meta.data$conditions <- samples[i]
 
 # we will take the union of the top 1k variable genes in each dataset for
 # alignment note that we use 1k genes in the manuscript examples, you can
 # try this here with negligible changes to the overall results
-g <- lapply(Thymus, function(x) head(rownames(x@hvg.info), 1000))
-genes.use <- unique(c(g[[1]],g[[2]]))
+genes.use <- lapply(Thymus_list, function(x) head(rownames(x@hvg.info), 1000))
+genes.use <- unique(unlist(genes.use))
 for(i in 1:length(samples)){
-        genes.use <- intersect(genes.use, rownames(Thymus[[i]]@scale.data))
+        genes.use <- intersect(genes.use, rownames(Thymus_list[[i]]@scale.data))
 }
-length(genes.use) # 1/10 of total sample size 16764
+length(genes.use) # 1/10 of total sample size
 
 #======1.2 Perform a canonical correlation analysis (CCA) =========================
 # run a canonical correlation analysis to identify common sampleurces
 # of variation between the two datasets.
-Thymus <- RunMultiCCA(object.list = Thymus, 
+Thymus <- RunMultiCCA(object.list = Thymus_list, 
                       genes.use = genes.use,
                       niter = 25, num.ccs = 30,
                       standardize =TRUE)
-#save(Thymus, file = "./Thymus_alignment.Rda")
+save(Thymus, file = "./Thymus_alignment.Rda")
+remove(Thymus_raw)
+remove(Thymus_list)
 
 # CCA plot CC1 versus CC2 and look at a violin plot
 p1 <- DimPlot(object = Thymus, reduction.use = "cca", 
@@ -83,16 +85,24 @@ png('./output/MetageneBicorPlot.png')
 p3 <- MetageneBicorPlot(Thymus, grouping.var = "conditions", dims.eval = 1:30, 
                         display.progress = FALSE)
 dev.off()
+
+#======1.3 QC ==================================
+# Run rare non-overlapping filtering
+Thymus <- CalcVarExpRatio(object = Thymus, reduction.type = "pca",
+                      grouping.var = "conditions", dims.use = 1:10)
+Thymus <- SubsetData(Thymus, subset.name = "var.ratio.pca",accept.low = 0.5)
+
+
 #======1.4 align seurat objects =========================
 #Now we align the CCA subspaces, which returns a new dimensional reduction called cca.aligned
 
 Thymus <- AlignSubspace(object = Thymus, reduction.type = "cca", grouping.var = "conditions", 
                         dims.align = 1:20)
 #Now we can run a single integrated analysis on all cells!
-Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:20, 
-                  dim.embed = 2, do.fast = TRUE)
 Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:20, 
                        save.SNN = TRUE)
+Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:20, 
+                  dim.embed = 2, do.fast = TRUE)
 p1 <- TSNEPlot(Thymus, do.return = T, pt.size = 1, group.by = "conditions")
 p2 <- TSNEPlot(Thymus, do.label = F, do.return = T, pt.size = 1)
 png('./output/TSNES_plots.png')
