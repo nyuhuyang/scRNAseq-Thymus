@@ -6,7 +6,6 @@
 
 library(Seurat)
 library(dplyr)
-source("./R/Seurat_functions.R")
 ########################################################################
 #
 #  1 Seurat Alignment 
@@ -27,16 +26,16 @@ groups <- c(rep(group[1:2],each =4),rep(group[3:4],each =6),rep(group[5],each =4
 conditions <- c(rep(condition[1],each =8),rep(condition[2],each =12),rep(condition[3],each =4))
 sample <- c(rep(sample1,time =2),sample2,sample3)
 length(groups);length(sample);length(conditions)
-paths <- c(); samples <- c()
+pwd <- getwd();paths <- c(); samples <- c()
 for(i in c(1:24)){
-        paths[i] <- paste0("./data/", groups[i],"/out_",sample[i],
+        paths[i] <- paste0(pwd,"/data/", groups[i],"/out_",sample[i],
                            "/out_gene_exon_tagged.dge_",sample[i],".txt.gz")
         samples[i] <- paste0(groups[i],"_",sample[i])
 }
 
 Thymus_raw <- lapply(paths, read.table, header=T,row.names = "GENE",stringsAsFactors=F)
 
-for(i in 1:length(samples)) colnames(Thymus_raw[[i]]) <- paste0(conditions[i],
+for(i in 1:length(samples)) colnames(Thymus_raw[[i]]) <- paste0(samples[i],
                                                             ".",colnames(Thymus_raw[[i]])) #. is easier for sub
 Thymus_list <- lapply(Thymus_raw, CreateSeuratObject,
                  min.cells = 3,
@@ -49,12 +48,12 @@ Thymus_list <- lapply(Thymus_list, FilterCells,
 Thymus_list <- lapply(Thymus_list, NormalizeData)
 Thymus_list <- lapply(Thymus_list, FindVariableGenes, do.plot = FALSE)
 Thymus_list <- lapply(Thymus_list, ScaleData)
-for(i in 1:length(samples)) Thymus_list[[i]]@meta.data$conditions <- samples[i]
+for(i in 1:length(samples)) Thymus_list[[i]]@meta.data$conditions <- conditions[i]
 
 # we will take the union of the top 1k variable genes in each dataset for
 # alignment note that we use 1k genes in the manuscript examples, you can
 # try this here with negligible changes to the overall results
-genes.use <- lapply(Thymus_list, function(x) head(rownames(x@hvg.info), 1000))
+genes.use <- lapply(Thymus_list, function(x) head(rownames(x@hvg.info), 500))
 genes.use <- unique(unlist(genes.use))
 for(i in 1:length(samples)){
         genes.use <- intersect(genes.use, rownames(Thymus_list[[i]]@scale.data))
@@ -68,7 +67,7 @@ Thymus <- RunMultiCCA(object.list = Thymus_list,
                       genes.use = genes.use,
                       niter = 25, num.ccs = 30,
                       standardize =TRUE)
-save(Thymus, file = "./Thymus_alignment.Rda")
+save(Thymus, file = paste0(pwd,"/data/Thymus_alignment.Rda"))
 remove(Thymus_raw)
 remove(Thymus_list)
 
@@ -78,10 +77,10 @@ p1 <- DimPlot(object = Thymus, reduction.use = "cca",
               do.return = TRUE)
 p2 <- VlnPlot(object = Thymus, features.plot = "CC1", 
               group.by = "conditions", do.return = TRUE)
-png('./output/Dim_violin_plots.png')
+png(paste0(pwd,'/output/Dim_violin_plots.png'))
 plot_grid(p1, p2)
 dev.off()
-png('./output/MetageneBicorPlot.png')
+png(paste0(pwd,'/output/MetageneBicorPlot.png'))
 p3 <- MetageneBicorPlot(Thymus, grouping.var = "conditions", dims.eval = 1:30, 
                         display.progress = FALSE)
 dev.off()
@@ -89,7 +88,7 @@ dev.off()
 #======1.3 QC ==================================
 # Run rare non-overlapping filtering
 Thymus <- CalcVarExpRatio(object = Thymus, reduction.type = "pca",
-                      grouping.var = "conditions", dims.use = 1:10)
+                      grouping.var = "conditions", dims.use = 1:15)
 Thymus <- SubsetData(Thymus, subset.name = "var.ratio.pca",accept.low = 0.5)
 
 
@@ -97,24 +96,47 @@ Thymus <- SubsetData(Thymus, subset.name = "var.ratio.pca",accept.low = 0.5)
 #Now we align the CCA subspaces, which returns a new dimensional reduction called cca.aligned
 
 Thymus <- AlignSubspace(object = Thymus, reduction.type = "cca", grouping.var = "conditions", 
-                        dims.align = 1:20)
+                        dims.align = 1:15)
 #Now we can run a single integrated analysis on all cells!
-Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:20, 
+Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:15, 
                        save.SNN = TRUE)
-Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:20, 
+Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:15, 
                   dim.embed = 2, do.fast = TRUE)
 p1 <- TSNEPlot(Thymus, do.return = T, pt.size = 1, group.by = "conditions")
 p2 <- TSNEPlot(Thymus, do.label = F, do.return = T, pt.size = 1)
-png('./output/TSNES_plots.png')
+png(paste0(pwd,'/output/TSNES_plots.png'))
 plot_grid(p1, p2)
 dev.off()
 #Now, we annotate the clusters as before based on canonical markers.
-png('./output/TheClusters.png')
-TSNEPlot(object = Thymus,do.label = F, group.by = "conditions", 
+png(paste0(pwd,'/output/TheClusters.png'))
+TSNEPlot(object = Thymus,do.label = TRUE, group.by = "ident", 
                do.return = TRUE, no.legend = TRUE,
                pt.size = 1,label.size = 8 )+
-        ggtitle("Aligned aged_male vs young_male")+
+        ggtitle("Tsne Plot of all clusters")+
         theme(text = element_text(size=20),     #larger text including legend title							
               plot.title = element_text(hjust = 0.5)) #title in middle
 dev.off()
-save(Thymus, file = "./Thymus_alignment.Rda")
+save(Thymus, file = paste0(pwd,"/data/Thymus_alignment.Rda"))
+
+# Compare clusters for each dataset
+cell.all <- FetchData(Thymus,"conditions")
+cell.subsets <- lapply(condition, function(x) 
+        rownames(cell.all)[cell.all$conditions == x])
+
+Thymus.subsets <- list()
+for(i in 1:length(condition)){
+        Thymus.subsets[[i]] <- SubsetData(Thymus, cells.use =cell.subsets[[i]])
+}
+
+table(Thymus.subsets[[1]]@ident)
+
+p <- list()
+for(i in 1:length(condition)){
+        p[[i]] <- TSNEPlot(object = Thymus.subsets[[i]],do.label = TRUE, group.by = "ident", 
+                           do.return = TRUE, no.legend = TRUE,
+                           pt.size = 1,label.size = 4 )+
+                ggtitle(condition[i])+
+                theme(text = element_text(size=20),     #larger text including legend title							
+                      plot.title = element_text(hjust = 0.5)) #title in middle
+}
+do.call(plot_grid, p)
