@@ -99,7 +99,7 @@ Thymus <- AlignSubspace(object = Thymus, reduction.type = "cca", grouping.var = 
                         dims.align = 1:15)
 #Now we can run a single integrated analysis on all cells!
 Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:15, 
-                       save.SNN = TRUE)
+                       resolution = 0.8, force.recalc = TRUE, save.SNN = TRUE)
 Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:15, 
                   dim.embed = 2, do.fast = TRUE)
 p1 <- TSNEPlot(Thymus, do.return = T, pt.size = 1, group.by = "conditions")
@@ -132,7 +132,7 @@ table(Thymus.subsets[[1]]@ident)
 
 p <- list()
 for(i in 1:length(condition)){
-        p[[i]] <- TSNEPlot(object = Thymus.subsets[[i]],do.label = TRUE, group.by = "ident", 
+        p[[i]] <- TSNEPlot(object = Thymus.subsets[[i]],do.label = F, group.by = "ident", 
                            do.return = TRUE, no.legend = TRUE,
                            pt.size = 1,label.size = 4 )+
                 ggtitle(condition[i])+
