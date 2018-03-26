@@ -21,7 +21,8 @@ FeaturePlot(object = Thymus,
 
 # Epithelium
 Epithelium <- MouseGenes(Thymus,c("KRT19","Epcam","KRT5","MUC1","SCGB3A2","SCGB1A1",
-              "SCGB3A1","SFTPB","FOXJ1","Rpe65","Rlbp1","Msln","Upk3b","Lrrn4"))
+              "SCGB3A1","SFTPB","FOXJ1","Rpe65","Rlbp1"))
+Mesothelial <- MouseGenes(Thymus,c("Msln","Upk3b","Lrrn4"))
 TECs <- MouseGenes(Thymus,c("Ccl25","Cxcl12","Ctsl","Psmb11","Aire","HLA-DMA","Krt5",
                    "Gas1","Plet1","Ly6d","Spink5","Reg3g","Bpifa1"))
 FeaturePlot(object = Thymus, 
@@ -74,20 +75,20 @@ FeaturePlot(object = Thymus,
 table(Thymus@ident)
 idents <- as.data.frame(table(Thymus@ident))
 old.ident.ids <- idents$Var1
-new.cluster.ids <- c("0.Mesenchymal Cells",
-                     "1.T cells",
-                     "2.Medullary TECs (mTEChi)",
-                     "3.Medullary TECs (mTEClo)",
-                     "4.T cells",
-                     "5.Mesenchymal Cells",
-                     "6.Endothelial cells",
-                     "7.T cells",
-                     "8.T cells & Cortical TECs (cTECs)",
-                     "9.Mesothelial Cells",
-                     "10.Hematopoietic cells & TEC subset",
-                     "11.Mesenchymal Cells",
-                     "12.Epithelium",
-                     "13.Mesenchymal Cells")
+new.cluster.ids <- c("Mesenchymal Cells",
+                     "T cells",
+                     "Medullary TECs (mTEChi)",
+                     "Medullary TECs (mTEClo)",
+                     "T cells",
+                     "Mesenchymal Cells",
+                     "Endothelial cells",
+                     "T cells",
+                     "T cells & Cortical TECs (cTECs)",
+                     "Mesothelial Cells",
+                     "Hematopoietic cells & TEC subset",
+                     "Smooth muscle cells",
+                     "Epithelium",
+                     "Smooth muscle cells")
 
 Thymus@ident <- plyr::mapvalues(x = Thymus@ident,
                             from = old.ident.ids,
@@ -102,24 +103,65 @@ TSNEPlot(object = Thymus, no.legend = TRUE, do.label = TRUE,
 # across conditions, showing both the expression level and the percentage of cells
 # in a cluster expressing any given gene. 
 # Here we plot 1-3 strong marker genes for each of our 13 clusters.
-markers.to.plot <- c("Cdh5","Pecam1","Flt1","Vwf","Plvap","Kdr","EMCN","ptprb","KRT19",
-                     "Epcam","PTPRC","LAPTM5","SRGN","CD14","CD68","CD3D","CCL5","Pdgfrb",
-                     "Dcn")
+markers.to.plot <- c(Mesenchymal[c(2,4)],Smooth_muscle_cells,Epithelium[2],Hematopoietic,Mesothelial,
+                     TECs[4:6],Tcell[c(1:2,11)],Endothelial[1:3])
 markers.to.plot <- MouseGenes(Thymus,markers.to.plot, unique =T)
 sort(markers.to.plot)
 sdp <- SplitDotPlotGG(Thymus, genes.plot = rev(markers.to.plot),
                       cols.use = c("grey","blue"), x.lab.rot = T, plot.legend = T,
                       dot.scale = 8, do.return = T, grouping.var = "conditions")
 
+#2.1.1 - A table with the number of cells of each cluster and subcluster, for both B6 and 129_B6 strains.
+# We can also compare proportional shifts in the data. As can be seen in the barplot, 
+freq_table <- prop.table(x = table(Thymus@ident, Thymus@meta.data[, "conditions"]), 
+                         margin = 2)
+barplot(height = freq_table)
 
-# Thymus <- RenameIdentBack(Thymus)
+freq_table <- as.data.frame(freq_table)
+table(Thymus@meta.data[, "conditions"])
+
+#====== 2.2 T Cell depletion  ==========================================
+Thymus_noT <- SubsetData(Thymus,ident.remove = new.cluster.ids[c(2,5,8)])
+
 # How many cells are in each cluster
-table(Thymus@ident)
-TSNEPlot(object = Thymus, no.legend = TRUE, do.label = TRUE,
+table(Thymus_noT@ident)
+#Now we can run a single integrated analysis on all cells!
+Thymus_noT <- FindClusters(object = Thymus_noT, reduction.type = "cca.aligned", dims.use = 1:15, 
+                       resolution = 1, force.recalc = TRUE, save.SNN = TRUE)
+Thymus_noT <- RunTSNE(object = Thymus_noT, reduction.use = "cca.aligned", dims.use = 1:15, 
+                  dim.embed = 2, do.fast = TRUE)
+
+TSNEPlot(object = Thymus_noT, no.legend = TRUE, do.label = TRUE,
          do.return = TRUE, label.size = 6)+
-  ggtitle("Major cell types")+
+  ggtitle("Major cell types after T cell depletion")+
   theme(text = element_text(size=20),     #larger text including legend title							
         plot.title = element_text(hjust = 0.5)) #title in middle
+
+sdp <- SplitDotPlotGG(Thymus_noT, genes.plot = rev(markers.to.plot),
+                      cols.use = c("grey","blue"), x.lab.rot = T, plot.legend = T,
+                      dot.scale = 8, do.return = T, grouping.var = "conditions")
+
+table(Thymus_noT@ident)
+idents <- as.data.frame(table(Thymus_noT@ident))
+old.ident.ids <- idents$Var1
+new.cluster.ids <- c("0.Mesenchymal Cells",
+                     "1.Medullary TECs (mTEChi)",
+                     "2.Endothelial cells",
+                     "3.Mesenchymal Cells",
+                     "4.Medullary TECs (mTEClo)",
+                     "5.Mesenchymal Cells",
+                     "6.Unknown",
+                     "7.T cells",
+                     "8.Hematopoietic cells & TEC subset",
+                     "9.Mesothelial Cells",
+                     "10.Mesenchymal Cells",
+                     "11.Epithelium",
+                     "12.Mesenchymal Cells",
+                     "13.Medullary TECs (mTEChi)")
+
+FeaturePlot(object = Thymus_noT, 
+            features.plot = markers.to.plot[1:9], min.cutoff = NA, 
+            cols.use = c("lightgrey","blue"), pt.size = 0.5)
 
 #=====2.2 - A table with the number of cells of each cluster and subcluster, for both B6 and 129_B6 strains.
 # We can also compare proportional shifts in the data. As can be seen in the barplot, 

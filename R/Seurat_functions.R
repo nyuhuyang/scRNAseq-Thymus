@@ -277,19 +277,20 @@ MyMerge <- function(x, y){
 
 # MouseGenes
 # turn list of gene character to uniform mouse gene list format
-MouseGenes <- function(seurat.object,marker.genes){
+MouseGenes <- function(seurat.object, marker.genes, unique=FALSE){
         if(missing(seurat.object)) 
-          stop("A seurat object must be provided first")
+                stop("A seurat object must be provided first")
         if(class(seurat.object) != "seurat") 
-          stop("A seurat object must be provided first")
+                stop("A seurat object must be provided first")
         if(missing(marker.genes)) 
-          stop("A list of marker genes must be provided")
+                stop("A list of marker genes must be provided")
         # marker.genes =c("Cdh5,Pecam1,Flt1,Vwf,Plvap,Kdr") for example
         marker.genes <- as.character(marker.genes)
         marker.genes <- unlist(strsplit(marker.genes,","))
         #        marker.genes <- unique(genes)
         marker.genes <- Hmisc::capitalize(tolower(marker.genes))
         marker.genes <- marker.genes[marker.genes %in% seurat.object@raw.data@Dimnames[[1]]]
+        if(unique) marker.genes <- unique(marker.genes)
         print(length(marker.genes))
         return(marker.genes)
 }
