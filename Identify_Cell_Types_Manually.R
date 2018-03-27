@@ -122,7 +122,7 @@ table(Thymus@meta.data[, "conditions"])
 
 #====== 2.2 T Cell depletion  ==========================================
 Thymus_noT <- SubsetData(Thymus,ident.remove = new.cluster.ids[c(2,5,8)])
-
+save(Thymus_noT, file = "./output/Thymus_noT.Rda")
 # How many cells are in each cluster
 table(Thymus_noT@ident)
 #Now we can run a single integrated analysis on all cells!
