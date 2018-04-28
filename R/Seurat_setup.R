@@ -6,6 +6,7 @@
 
 library(Seurat)
 library(dplyr)
+source("./R/Seurat_functions.R")
 ########################################################################
 #
 #  1 Seurat Alignment 
@@ -50,6 +51,7 @@ Thymus_list <- lapply(Thymus_list, FindVariableGenes, do.plot = FALSE)
 Thymus_list <- lapply(Thymus_list, ScaleData)
 for(i in 1:length(samples)) Thymus_list[[i]]@meta.data$conditions <- conditions[i]
 
+
 # we will take the union of the top 1k variable genes in each dataset for
 # alignment note that we use 1k genes in the manuscript examples, you can
 # try this here with negligible changes to the overall results
@@ -88,19 +90,36 @@ dev.off()
 #======1.3 QC ==================================
 # Run rare non-overlapping filtering
 Thymus <- CalcVarExpRatio(object = Thymus, reduction.type = "pca",
-                      grouping.var = "conditions", dims.use = 1:15)
+                      grouping.var = "conditions", dims.use = 1:20)
 Thymus <- SubsetData(Thymus, subset.name = "var.ratio.pca",accept.low = 0.5)
 
+# Since there is a rare subset of cells
+# with an outlier level of high mitochondrial percentage and also low UMI
+# content, we filter these as well
+mito.genes <- grep(pattern = "^mt-", x = rownames(x = Thymus@data), value = TRUE)
+percent.mito <- Matrix::colSums(Thymus@raw.data[mito.genes, ])/Matrix::colSums(Thymus@raw.data)
+Thymus <- AddMetaData(object = Thymus, metadata = percent.mito, col.name = "percent.mito")
+#Thymus <- ScaleData(object = Thymus, genes.use = genes.use, display.progress = FALSE, 
+#                         vars.to.regress = "percent.mito", do.par = TRUE, num.cores = 4)
+ 
+#Now we can run a single integrated analysis on all cells!
+VlnPlot(object = Thymus, features.plot = c("nGene", "nUMI", "percent.mito"), nCol = 3)
+
+par(mfrow = c(1, 2))
+GenePlot(object = Thymus, gene1 = "nUMI", gene2 = "percent.mito")
+GenePlot(object = Thymus, gene1 = "nUMI", gene2 = "nGene",log="xy")
+
+Thymus <- FilterCells(object = Thymus, subset.names = c("nGene", "percent.mito"), 
+                    low.thresholds = c(500, -Inf), high.thresholds = c(10000, 0.1))
 
 #======1.4 align seurat objects =========================
 #Now we align the CCA subspaces, which returns a new dimensional reduction called cca.aligned
 
 Thymus <- AlignSubspace(object = Thymus, reduction.type = "cca", grouping.var = "conditions", 
-                        dims.align = 1:15)
-#Now we can run a single integrated analysis on all cells!
-Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:15, 
-                       resolution = 0.8, force.recalc = TRUE, save.SNN = TRUE)
-Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:15, 
+                        dims.align = 1:20)
+Thymus <- FindClusters(object = Thymus, reduction.type = "cca.aligned", dims.use = 1:20, 
+                       resolution = 1.2, force.recalc = TRUE, save.SNN = TRUE)
+Thymus <- RunTSNE(object = Thymus, reduction.use = "cca.aligned", dims.use = 1:20, 
                   dim.embed = 2, do.fast = TRUE)
 p1 <- TSNEPlot(Thymus, do.return = T, pt.size = 1, group.by = "conditions")
 p2 <- TSNEPlot(Thymus, do.label = F, do.return = T, pt.size = 1)
@@ -119,24 +138,4 @@ dev.off()
 save(Thymus, file = paste0(pwd,"/data/Thymus_alignment.Rda"))
 
 # Compare clusters for each dataset
-cell.all <- FetchData(Thymus,"conditions")
-cell.subsets <- lapply(condition, function(x) 
-        rownames(cell.all)[cell.all$conditions == x])
-
-Thymus.subsets <- list()
-for(i in 1:length(condition)){
-        Thymus.subsets[[i]] <- SubsetData(Thymus, cells.use =cell.subsets[[i]])
-}
-
-table(Thymus.subsets[[1]]@ident)
-
-p <- list()
-for(i in 1:length(condition)){
-        p[[i]] <- TSNEPlot(object = Thymus.subsets[[i]],do.label = F, group.by = "ident", 
-                           do.return = TRUE, no.legend = TRUE,
-                           pt.size = 1,label.size = 4 )+
-                ggtitle(condition[i])+
-                theme(text = element_text(size=20),     #larger text including legend title							
-                      plot.title = element_text(hjust = 0.5)) #title in middle
-}
-do.call(plot_grid, p)
+SplitTSNEPlot(Thymus, "conditions",do.label = T,no.legend = T)
